@@ -164,7 +164,7 @@
           <p class="legal">Axon AI © 2025 — All rights reserved.</p>
           <a id="app-store-link" class="store-btn" href="https://apps.apple.com/app/id0000000000" target="_blank" rel="noopener">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.365 1.43c0 1.14-.46 2.23-1.2 3.04-.76.83-1.99 1.48-3.18 1.39-.14-1.12.44-2.3 1.16-3.06.8-.83 2.14-1.44 3.22-1.37zM20.9 17.22c-.57 1.32-.84 1.9-1.57 3.07-1.02 1.67-2.45 3.76-4.22 3.79-1.58.03-2-.98-4.16-.98s-2.64 1-4.23 1c-1.78.03-3.14-1.8-4.16-3.46C1.1 18.7 0 15.13 1.4 12.5c.95-1.84 2.64-3 4.47-3.03 1.75-.03 3.4 1.02 4.16 1.02.76 0 2.87-1.26 4.86-1.08.83.03 3.15.34 4.64 2.57-3.95 2.16-3.32 7.57.37 5.24z"/></svg>
-            <span>Download on the App Store</span>
+            <span>Download on the App Store</span>
           </a>
         </div>
       </section>
@@ -206,7 +206,7 @@
 
     // Bright, readable lighting
     const pmrem = new THREE.PMREMGenerator(renderer);
-    scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.9).texture;
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.9).texture;
     scene.add(new THREE.AmbientLight(0xffffff, 0.9));
     const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(3, 5, 4); key.castShadow = true; scene.add(key);
     const fill = new THREE.DirectionalLight(0xffffff, 0.9); fill.position.set(-2, 1, -2); scene.add(fill);
@@ -218,6 +218,12 @@
 
     // ---- Load product parts (STL) ----
     const loader = new STLLoader();
+    const modelErrorEl = document.createElement('div');
+    modelErrorEl.id = 'model-error';
+    modelErrorEl.style.cssText = 'position:fixed;top:12px;right:12px;background:#111827;color:#fff;padding:10px 12px;border-radius:10px;border:1px solid #334155;max-width:320px;z-index:30;display:none;font:12px/1.3 ui-monospace,Menlo,Consolas';
+    document.body.appendChild(modelErrorEl);
+    function showModelError(msg){ modelErrorEl.textContent = msg; modelErrorEl.style.display = 'block'; }
+
     const product = new THREE.Group();
     const bodyGroup = new THREE.Group();   // case body
     const lidPivot  = new THREE.Group();   // pivot for lid animation
@@ -246,8 +252,11 @@
       const enc = encodeURIComponent(raw);
       return [
         `./models/${enc}`,
+        `/models/${enc}`,
         `./models/${raw}`,
-        `./models/${fallback}`
+        `/models/${raw}`,
+        `./models/${fallback}`,
+        `/models/${fallback}`
       ];
     }
 
@@ -269,10 +278,16 @@
     }
 
     async function loadFirst(urls, material){
+      const tried = [];
       for(const u of urls){
-        try{ return await loadSTL(u, material); }catch(err){ /* try next */ }
+        try {
+          const m = await loadSTL(u, material);
+          return { mesh: m, tried };
+        } catch(err){
+          tried.push(u);
+        }
       }
-      throw new Error('All candidates failed for ' + urls[0]);
+      throw new Error('All candidates failed. Tried: ' + tried.join(', '));
     }
 
     function centerAndScale(group){
@@ -289,11 +304,10 @@
     // Load all parts; if missing, fall back to a placeholder block so the page still works
     async function buildProduct(){
       try{
-        const [body, lid, boron] = await Promise.all([
-          loadFirst(MODEL_CANDS.body,  materials.body),
-          loadFirst(MODEL_CANDS.lid,   materials.lid),
-          loadFirst(MODEL_CANDS.boron, materials.boron)
-        ]);
+        const bodyRes  = await loadFirst(MODEL_CANDS.body,  materials.body);
+        const lidRes   = await loadFirst(MODEL_CANDS.lid,   materials.lid);
+        const boronRes = await loadFirst(MODEL_CANDS.boron, materials.boron);
+        const body = bodyRes.mesh, lid = lidRes.mesh, boron = boronRes.mesh;
 
         // Put meshes into temp group to normalize transform
         const temp = new THREE.Group(); temp.add(body.clone(), lid.clone(), boron.clone());
@@ -316,6 +330,7 @@
         boronGroup.position.y -= 0.2;
       }catch(err){
         console.warn('STL load failed, using placeholder geometry.', err);
+        showModelError('Could not load one or more .stl files (404?). Ensure files are in /models and names match. ' + (err?.message||''));
         const placeholder = new THREE.Mesh(new THREE.BoxGeometry(2,1,1), new THREE.MeshStandardMaterial({ color: COLORS.muted }));
         bodyGroup.add(placeholder);
       }
@@ -443,6 +458,12 @@
     test('App Store link present', ()=> /^https:\/\/apps\.apple\.com\//.test(document.getElementById('app-store-link')?.href || ''));
     test('Renderer sized', ()=> renderer.getSize(new THREE.Vector2()).x > 0);
     test('Lighting bright', ()=> key.intensity >= 1.0);
+    test('At least product group exists', ()=> product.children.length > 0);
+
+    // Additional sanity tests
+    test('MODEL_CANDS have candidates', ()=> Array.isArray(MODEL_CANDS.body) && MODEL_CANDS.body.length > 0);
+    test('Candidates include /models/', ()=> MODEL_CANDS.body.some(u=>u.includes('/models/')));
+    test('App Store opens new tab', ()=> (document.getElementById('app-store-link')?.target||'') === '_blank');
 
     const failed = TESTS.filter(t=>!t.pass);
     if(failed.length){ debugBadge.className='fail'; debugBadge.textContent = `${failed.length} test(s) failed — open console`; }
