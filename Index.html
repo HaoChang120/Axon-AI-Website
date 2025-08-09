@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Axon AI — Concussion Detection</title>
+
+  <!-- Import map fixes any bare 'three' or 'three/...' specifiers -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/": "https://unpkg.com/three@0.160.0/"
+      }
+    }
+  </script>
+  <link rel="preload" as="script" href="https://unpkg.com/three@0.160.0/build/three.module.js" />
+
+  <style>
+    :root{
+      --black:#000000; /* 000000 */
+      --navy:#14213d; /* 14213d */
+      --accent:#fca311; /* fca311 */
+      --muted:#e5e5e5; /* e5e5e5 */
+      --white:#ffffff; /* ffffff */
+      --pad: clamp(16px, 3vw, 32px);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+
+    /* Enable snap-to-section on the main scroller */
+    html{ scroll-snap-type: y mandatory; scroll-padding-top: var(--pad); scroll-behavior: smooth; }
+
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--black);
+      background: radial-gradient(1200px 600px at 15% 10%, #eef2ff 0%, #e7edff 40%, #dfe7f6 70%, #f3f6ff 100%) fixed;
+      overflow-x:hidden;
+    }
+
+    /* --- Layout: two column scrollytelling (text left, model right sticky) --- */
+    .split{
+      display:grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(420px, 1fr);
+      gap: clamp(16px, 3vw, 36px);
+      align-items:start;
+      padding: var(--pad);
+    }
+    @media (max-width: 980px){
+      .split{grid-template-columns: 1fr}
+      .viewer{position:relative; height:70vh;}
+    }
+
+    /* Sticky viewer holds the WebGL canvas, but doesn't eat scroll */
+    .viewer{position:sticky; top:0; height:100vh;}
+    #scene{width:100%; height:100%; display:block; pointer-events:none;}
+
+    /* Left column: steps */
+    .steps{min-height:100vh}
+    .step{min-height:100vh; display:flex; align-items:center; scroll-snap-align: start; scroll-snap-stop: always;}
+    .card{background:rgba(255,255,255,.9); border:1px solid rgba(0,0,0,.06); box-shadow:0 10px 35px rgba(16, 24, 40, .08);
+      border-radius:18px; padding:clamp(16px,2.6vw,28px); backdrop-filter: blur(8px);} 
+    h1{font-size:clamp(40px,6vw,72px); margin:0 0 8px; letter-spacing:-.02em; color:var(--navy)}
+    h2{font-size:clamp(22px,3.2vw,34px); margin:0 0 8px; color:var(--accent)}
+    p{font-size:clamp(16px,2vw,20px); margin:0; color:#0b1020}
+
+    /* Footer styles */
+    .footer-card{ text-align:center; }
+    .legal{ color:#0b1020; opacity:0.8; margin:6px 0 18px; }
+    .store-btn{ display:inline-flex; align-items:center; gap:10px; padding:10px 14px; border-radius:12px; background:#000; color:#fff; text-decoration:none; font-weight:600; box-shadow:0 6px 20px rgba(0,0,0,.25); border:1px solid rgba(255,255,255,.1) }
+    .store-btn svg{ width:22px; height:22px; display:block }
+
+    /* Tiny progress rail */
+    .rail{position:fixed; left:14px; top:0; bottom:0; width:8px; z-index:5}
+    .rail .dot{position:absolute; left:3px; width:2px; height:2px; background:#475569; border-radius:50%; opacity:.35}
+
+    /* Debug badge for tests */
+    #debug-badge{position:fixed; right:10px; bottom:10px; font:12px/1.2 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:#101828; color:#fff; border:1px solid #334155; padding:8px 10px; border-radius:10px; display:none; z-index:20}
+    #debug-badge.fail{display:block}
+  </style>
+</head>
+<body>
+  <noscript style="position:fixed;inset:0;background:#000;color:#fff;display:grid;place-items:center;z-index:99;">
+    <div>JavaScript is required to view this 3D experience.</div>
+  </noscript>
+
+  <div class="split" id="split">
+    <!-- Left: text steps (your exact copy) -->
+    <div class="steps" id="steps">
+      <section class="step" id="hero">
+        <div class="card">
+          <h1>Axon AI</h1>
+          <p>Axon AI integrates state-of-the-art sensor technology with advanced artificial intelligence to detect potential concussions as they occur during play.</p>
+        </div>
+      </section>
+
+      <section class="step" id="s1R">
+        <div class="card">
+          <h2>Real‑time Impact Analytics</h2>
+          <p>By monitoring acceleration, force, and rotational motion, the system delivers real-time analytics to help prevent undiagnosed brain injuries and improve athlete safety.</p>
+        </div>
+      </section>
+
+      <section class="step" id="ls2">
+        <div class="card">
+          <h2>The Hidden Cost of Impacts</h2>
+          <p>Every year, football players endure repeated head impacts—often without recognizing the severity. Concussions frequently go undetected, misdiagnosed, or outright ignored, allowing athletes to unknowingly compete while suffering from traumatic brain injuries. Motivated by adrenaline and competitive pressure, many continue playing, worsening their condition.</p>
+        </div>
+      </section>
+
+      <section class="step" id="rs2">
+        <div class="card">
+          <h2>Beyond the Pros</h2>
+          <p>This issue affects more than just professional athletes. It spans youth leagues, high schools, and colleges. A 2022 study of athletes aged 8–14 showed that 12.7% did not report suspected concussions, and 13.1% played through injuries. These unreported incidents contribute to long-term effects such as chronic traumatic encephalopathy (CTE), memory impairment, depression, and early-onset dementia.</p>
+        </div>
+      </section>
+
+      <section class="step" id="ls3" data-scrub="lid">
+        <div class="card">
+          <h2>Detection, As It Happens</h2>
+          <p>Axon AI uses a sophisticated system of embedded hardware and AI algorithms to identify concussion risks in real time. Sensors inside the helmet track key metrics like impact acceleration, rotational forces, and the direction of the hit to assess potential brain trauma.</p>
+        </div>
+      </section>
+
+      <section class="step" id="rs3">
+        <div class="card">
+          <h2>360° Sensor Suite</h2>
+          <p>The helmet is equipped with four resistor-based pressure sensors (front, sides, and rear), a gyroscope, and an accelerometer. Together, these components offer 360° impact analysis, enabling the AI to instantly calculate force and rotation with high precision—delivering immediate feedback that could protect lives.</p>
+        </div>
+      </section>
+
+      <section class="step" id="ls4">
+        <div class="card">
+          <h2>Instant, Actionable Insights</h2>
+          <p>The system’s data is processed instantly by our AI engine, generating concussion probability scores, visual impact graphs, and alerts via our integrated mobile app. This empowers medical personnel, coaches, and trainers with actionable information the moment a dangerous collision occurs.</p>
+        </div>
+      </section>
+
+      <section class="step" id="rs4">
+        <div class="card">
+          <h2>Designed for the Sideline</h2>
+          <p>The interface is designed for rapid interpretation. Coaches receive clear, jargon-free data—eliminating guesswork and reducing the chance of oversight. Axon AI replaces uncertainty with accurate, objective insights that support faster, safer decisions on the field.</p>
+        </div>
+      </section>
+
+      <section class="step" id="ls5">
+        <div class="card">
+          <h2>Why Old Methods Fail</h2>
+          <p>Traditional methods depend heavily on self-reporting or observational assessments, which can be unreliable. Athletes may minimize symptoms, and coaches might misjudge impacts. Mild concussions often go untreated if they’re unnoticed—leading to serious long-term consequences. Intuition alone is no longer enough.</p>
+        </div>
+      </section>
+
+      <section class="step" id="rs5">
+        <div class="card">
+          <h2>Clinical‑Grade Precision</h2>
+          <p>Axon AI delivers clinical-grade precision. It automates injury detection, lowers the risk of misdiagnosis, and ensures athletes receive timely care. More than just a tool, it’s a breakthrough in sports safety—setting a new standard in how we prevent, detect, and respond to brain injuries.</p>
+        </div>
+      </section>
+
+      <!-- New footer step -->
+      <section class="step" id="footer">
+        <div class="card footer-card">
+          <p class="legal">Axon AI © 2025 — All rights reserved.</p>
+          <a id="app-store-link" class="store-btn" href="https://apps.apple.com/app/id0000000000" target="_blank" rel="noopener">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M16.365 1.43c0 1.14-.46 2.23-1.2 3.04-.76.83-1.99 1.48-3.18 1.39-.14-1.12.44-2.3 1.16-3.06.8-.83 2.14-1.44 3.22-1.37zM20.9 17.22c-.57 1.32-.84 1.9-1.57 3.07-1.02 1.67-2.45 3.76-4.22 3.79-1.58.03-2-.98-4.16-.98s-2.64 1-4.23 1c-1.78.03-3.14-1.8-4.16-3.46C1.1 18.7 0 15.13 1.4 12.5c.95-1.84 2.64-3 4.47-3.03 1.75-.03 3.4 1.02 4.16 1.02.76 0 2.87-1.26 4.86-1.08.83.03 3.15.34 4.64 2.57-3.95 2.16-3.32 7.57.37 5.24z"/></svg>
+            <span>Download on the App Store</span>
+          </a>
+        </div>
+      </section>
+    </div>
+
+    <!-- Right: sticky 3D viewer -->
+    <div class="viewer">
+      <canvas id="scene" aria-label="Axon AI product"></canvas>
+    </div>
+  </div>
+
+  <div class="rail" id="rail"></div>
+  <div id="debug-badge"></div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+    import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+    import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+
+    // ---- Setup renderer/scene/camera ----
+    const canvas = document.getElementById('scene');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    renderer.shadowMap.enabled = true;
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(50, canvas.clientWidth/canvas.clientHeight, 0.1, 100);
+    camera.position.set(0.6, 0.8, 4.6);
+
+    // Controls are programmatic-only; canvas ignores pointer events so page scroll works.
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enabled = false;
+
+    // Bright, readable lighting
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(renderer), 0.9).texture;
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const key = new THREE.DirectionalLight(0xffffff, 1.4); key.position.set(3, 5, 4); key.castShadow = true; scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.9); fill.position.set(-2, 1, -2); scene.add(fill);
+    const rim  = new THREE.DirectionalLight(0xffffff, 0.6); rim.position.set(0, 3, -4); scene.add(rim);
+
+    // Subtle ground to anchor shadows
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(6, 64), new THREE.ShadowMaterial({ opacity: 0.22 }));
+    ground.receiveShadow = true; ground.rotation.x = -Math.PI/2; ground.position.y = -0.4; scene.add(ground);
+
+    // ---- Load product parts (STL) ----
+    const loader = new STLLoader();
+    const product = new THREE.Group();
+    const bodyGroup = new THREE.Group();   // case body
+    const lidPivot  = new THREE.Group();   // pivot for lid animation
+    const boronGroup= new THREE.Group();   // PCB/module
+    product.add(bodyGroup, lidPivot, boronGroup);
+    scene.add(product);
+
+    // COLORS from palette
+    const COLORS = { navy:'#14213d', accent:'#fca311', muted:'#e5e5e5', white:'#ffffff', black:'#000000' };
+
+    const materials = {
+      body:  new THREE.MeshPhysicalMaterial({ color: COLORS.muted, metalness: 0.2, roughness: 0.35, clearcoat: 0.5 }),
+      lid:   new THREE.MeshPhysicalMaterial({ color: COLORS.white, metalness: 0.1, roughness: 0.22, clearcoat: 0.7 }),
+      boron: new THREE.MeshStandardMaterial({ color: COLORS.navy, metalness: 0.35, roughness: 0.4 }),
+      accents: new THREE.MeshStandardMaterial({ color: COLORS.accent, emissive: COLORS.accent, emissiveIntensity: 0.15, metalness: 0.4, roughness: 0.4 })
+    };
+
+    // Try your provided names first, then simple fallbacks
+    const RAW_NAMES = {
+      body:  "Hao's case body.stl",
+      lid:   "Hao's case lid.stl",
+      boron: "Particle Boron.stl"
+    };
+
+    function candidates(raw, fallback){
+      const enc = encodeURIComponent(raw);
+      return [
+        `./models/${enc}`,
+        `./models/${raw}`,
+        `./models/${fallback}`
+      ];
+    }
+
+    const MODEL_CANDS = {
+      body:  candidates(RAW_NAMES.body,  'body.stl'),
+      lid:   candidates(RAW_NAMES.lid,   'lid.stl'),
+      boron: candidates(RAW_NAMES.boron, 'boron.stl')
+    };
+
+    function loadSTL(url, material){
+      return new Promise((resolve, reject)=>{
+        loader.load(url, geo=>{
+          geo.computeVertexNormals();
+          const mesh = new THREE.Mesh(geo, material);
+          mesh.castShadow = true; mesh.receiveShadow = true;
+          resolve(mesh);
+        }, undefined, reject);
+      });
+    }
+
+    async function loadFirst(urls, material){
+      for(const u of urls){
+        try{ return await loadSTL(u, material); }catch(err){ /* try next */ }
+      }
+      throw new Error('All candidates failed for ' + urls[0]);
+    }
+
+    function centerAndScale(group){
+      const box = new THREE.Box3().setFromObject(group);
+      const size = new THREE.Vector3(); box.getSize(size);
+      const center = new THREE.Vector3(); box.getCenter(center);
+      group.position.sub(center);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const target = 2.2;
+      const s = target / maxDim;
+      group.scale.setScalar(s);
+    }
+
+    // Load all parts; if missing, fall back to a placeholder block so the page still works
+    async function buildProduct(){
+      try{
+        const [body, lid, boron] = await Promise.all([
+          loadFirst(MODEL_CANDS.body,  materials.body),
+          loadFirst(MODEL_CANDS.lid,   materials.lid),
+          loadFirst(MODEL_CANDS.boron, materials.boron)
+        ]);
+
+        // Put meshes into temp group to normalize transform
+        const temp = new THREE.Group(); temp.add(body.clone(), lid.clone(), boron.clone());
+        centerAndScale(temp);
+        const scale = temp.children[0].scale.x;
+        bodyGroup.scale.setScalar(scale); lidPivot.scale.setScalar(scale); boronGroup.scale.setScalar(scale);
+
+        bodyGroup.add(body);
+        boronGroup.add(boron);
+
+        // Hinge placement heuristic — adjust if needed when you confirm hinge side
+        const bodyBounds = new THREE.Box3().setFromObject(temp.children[0]);
+        const hinge = new THREE.Object3D();
+        hinge.position.set( (bodyBounds.min.x + bodyBounds.max.x)/2, bodyBounds.max.y, (bodyBounds.min.z + bodyBounds.max.z)/2 );
+        lidPivot.add(hinge);
+        hinge.add(lid);
+        lid.position.sub(hinge.position);
+
+        // Slight lift for board visibility
+        boronGroup.position.y -= 0.2;
+      }catch(err){
+        console.warn('STL load failed, using placeholder geometry.', err);
+        const placeholder = new THREE.Mesh(new THREE.BoxGeometry(2,1,1), new THREE.MeshStandardMaterial({ color: COLORS.muted }));
+        bodyGroup.add(placeholder);
+      }
+
+      // Arrange the whole product
+      product.position.set(0, 0.3, 0);
+    }
+
+    await buildProduct();
+
+    // ---- Snap-driven camera + animation ----
+    const steps = Array.from(document.querySelectorAll('.step'));
+
+    // Camera targets per section
+    const targets = {
+      hero: { pos: new THREE.Vector3(0.6, 0.8, 4.6), look: new THREE.Vector3(0,0.3,0), lid: 0.0 },
+      s1R : { pos: new THREE.Vector3(1.4, 0.9, 4.0), look: new THREE.Vector3(0.2,0.4,0.2), lid: 0.0 },
+      ls2 : { pos: new THREE.Vector3(-1.2, 0.9, 4.2), look: new THREE.Vector3(0,0.4,0), lid: 0.0 },
+      rs2 : { pos: new THREE.Vector3( 1.2, 0.8, 4.2), look: new THREE.Vector3(0,0.4,0), lid: 0.0 },
+      ls3 : { pos: new THREE.Vector3( 0.2, 0.9, 3.2), look: new THREE.Vector3(0,0.4,0), lid: 0.0 },
+      rs3 : { pos: new THREE.Vector3(-0.6, 0.9, 2.9), look: new THREE.Vector3(0,0.4,0), lid: 1.0 },
+      ls4 : { pos: new THREE.Vector3( 0.0, 1.4, 3.0), look: new THREE.Vector3(0,0.5,0), lid: 1.0 },
+      rs4 : { pos: new THREE.Vector3(-1.6, 0.8, 2.6), look: new THREE.Vector3(-0.2,0.4,0), lid: 1.0 },
+      ls5 : { pos: new THREE.Vector3( 0.0, 0.8, 3.6), look: new THREE.Vector3(0,0.3,0), lid: 1.0 },
+      rs5 : { pos: new THREE.Vector3( 0.0, 0.8, 5.0), look: new THREE.Vector3(0,0.3,0), lid: 1.0 },
+      footer : { pos: new THREE.Vector3( 0.0, 0.8, 5.4), look: new THREE.Vector3(0,0.3,0), lid: 1.0 }
+    };
+
+    let tweenId = 0;
+    function tweenCamera(to, ms=700){
+      const startId = ++tweenId;
+      const fromPos = camera.position.clone();
+      const fromLook= controls.target.clone();
+      const t0 = performance.now();
+      const ease = t=> t<.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2,3)/2;
+      function step(now){
+        if(startId!==tweenId) return;
+        const p = Math.min(1, (now-t0)/ms);
+        const e = ease(p);
+        camera.position.lerpVectors(fromPos, to.pos, e);
+        controls.target.lerpVectors(fromLook, to.look, e);
+        if(p<1) requestAnimationFrame(step);
+      }
+      requestAnimationFrame(step);
+    }
+
+    // Lid animation (0..1)
+    const state = { lidOpen: 0 };
+    function applyState(){
+      const pivot = lidPivot.children[0];
+      if(pivot){
+        pivot.rotation.x = - Math.PI * 0.95 * state.lidOpen; // ~170° max
+        controls.target.y = 0.35 + 0.1 * state.lidOpen;
+      }
+    }
+
+    // IntersectionObserver tuned for snap: only react when a step is strongly in view
+    const io = new IntersectionObserver((entries)=>{
+      entries.forEach(e=>{
+        if(e.isIntersecting && e.intersectionRatio > 0.9){
+          const id = e.target.id;
+          const tgt = targets[id] || targets.hero;
+          tweenCamera(tgt);
+
+          // For the LS3 step, animate lid opening during the snap settle
+          if(id==='ls3'){
+            const start = state.lidOpen; const end = 1; const ms = 650; const t0 = performance.now();
+            function anim(now){
+              const p = Math.min(1, (now-t0)/ms);
+              state.lidOpen = start + (end-start)*p; applyState();
+              if(p<1) requestAnimationFrame(anim);
+            }
+            requestAnimationFrame(anim);
+          }else{
+            state.lidOpen = tgt.lid; applyState();
+          }
+        }
+      });
+    }, { threshold:[0,.5,.9,1] });
+    steps.forEach(s=> io.observe(s));
+
+    // Dots rail
+    const rail = document.getElementById('rail');
+    const total = steps.length;
+    for(let i=0;i<total;i++){
+      const dot = document.createElement('div'); dot.className='dot'; dot.style.top = (i/(total-1))*100 + '%';
+      rail.appendChild(dot);
+    }
+
+    // Render loop
+    function resizeRenderer(){
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      const need = (canvas.width !== Math.floor(w*devicePixelRatio)) || (canvas.height !== Math.floor(h*devicePixelRatio));
+      if(need){
+        renderer.setSize(w, h, false);
+        camera.aspect = w/h; camera.updateProjectionMatrix();
+      }
+    }
+
+    function animate(){
+      resizeRenderer();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+    requestAnimationFrame(animate);
+
+    // Initial camera
+    tweenCamera(targets.hero, 0);
+
+    // ------------------------------
+    // Runtime tests ("test cases")
+    // ------------------------------
+    const TESTS = [];
+    const debugBadge = document.getElementById('debug-badge');
+    function test(name, fn){
+      try{ const ok = !!fn(); TESTS.push({name, pass: ok}); if(!ok) console.error(`[TEST FAIL] ${name}`); else console.log(`[TEST PASS] ${name}`);}catch(err){ TESTS.push({name, pass:false, err:String(err)}); console.error(`[TEST ERROR] ${name}:`, err);} }
+
+    test('Canvas does not trap scroll', ()=> getComputedStyle(canvas).pointerEvents === 'none');
+    test('Scroll snap enabled', ()=> getComputedStyle(document.documentElement).scrollSnapType.includes('mandatory'));
+    test('Steps are snap targets', ()=> Array.from(document.querySelectorAll('.step')).every(s=> getComputedStyle(s).scrollSnapAlign.includes('start')));
+    test('Three imported', ()=> typeof THREE?.WebGLRenderer === 'function');
+    test('OrbitControls available', ()=> typeof OrbitControls === 'function');
+    test('STLLoader available', ()=> typeof STLLoader === 'function');
+    test('Sections mounted', ()=> ['hero','s1R','ls2','rs2','ls3','rs3','ls4','rs4','ls5','rs5','footer'].every(id=> document.getElementById(id)));
+    test('App Store link present', ()=> /^https:\/\/apps\.apple\.com\//.test(document.getElementById('app-store-link')?.href || ''));
+    test('Renderer sized', ()=> renderer.getSize(new THREE.Vector2()).x > 0);
+    test('Lighting bright', ()=> key.intensity >= 1.0);
+
+    const failed = TESTS.filter(t=>!t.pass);
+    if(failed.length){ debugBadge.className='fail'; debugBadge.textContent = `${failed.length} test(s) failed — open console`; }
+    window.__AXON_TESTS__ = TESTS;
+  </script>
+</body>
+</html>
